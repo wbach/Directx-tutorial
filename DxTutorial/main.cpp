@@ -197,7 +197,7 @@ void InitRenderTarget()
     pBackBuffer->Release();
 
     // set the render target as the back buffer
-    devcon->OMSetRenderTargets(1, &backbuffer, NULL);
+    devcon->OMSetRenderTargets(1, &backbuffer, depthStencilView);
 }
 
 void InitDepthSetncilView()
@@ -296,6 +296,7 @@ void CreateTriangleVBO()
     bd.ByteWidth = sizeof(VERTEX) * 3;             // size is the VERTEX struct * 3
     bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;       // use as a vertex buffer
     bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;    // allow CPU to write in buffer
+    //bd.StructureByteStride = 0;
 
     D3D11_SUBRESOURCE_DATA InitData;
     ZeroMemory(&InitData, sizeof(InitData));
@@ -411,8 +412,8 @@ void InitCubeVBO()
 
 void InitVBO()
 {
-    //InitTriangleVBO();
     InitCubeVBO();
+    InitTriangleVBO();
 
     // select which primtive type we are using
     devcon->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -464,32 +465,48 @@ void InitD3D(HWND hwnd)
     ViewMatrix = XMMatrixLookAtLH(Eye, At, Up);
 
     ProjectionMatrix = XMMatrixPerspectiveFovLH(XM_PIDIV2, WIDTH / (FLOAT)HEIGHT, 0.01f, 100.0f);
+    devcon->VSSetConstantBuffers(0, 1, &pConstantBuffer);
+}
+
+void DrawTriangle(ConstantBuffer& cb)
+{
+    UINT stride = sizeof(VERTEX);
+    UINT offset = 0;
+    devcon->IASetVertexBuffers(0, 1, &pVBuffer, &stride, &offset);
+    cb.mWorld = XMMatrixTranspose(XMMatrixTranslation(objectPosX, 2, 0));
+    devcon->UpdateSubresource(pConstantBuffer, 0, NULL, &cb, 0, 0);
+    devcon->Draw(3, 0);
+}
+
+void DrawCube(ConstantBuffer& cb)
+{
+    UINT stride = sizeof(VERTEX);
+    UINT offset = 0;
+
+    devcon->IASetVertexBuffers(0, 1, &pCubeBuffer, &stride, &offset);
+    cb.mWorld = XMMatrixTranspose(XMMatrixTranslation(objectPosX, 0, 0));
+    devcon->UpdateSubresource(pConstantBuffer, 0, NULL, &cb, 0, 0);
+    devcon->DrawIndexed(36, 0, 0);
 }
 
 void Draw()
 {
     // select which vertex buffer to display
     // draw the vertex buffer to the back buffer
+    objectPosX += 0.001f;
 
-    WorldMatrix = XMMatrixTranslation(objectPosX, 0, 0);
+    if (objectPosX > 8)
+        objectPosX = -8;
 
-    objectPosX += 0.005f;
-
-    if (objectPosX > 7)
-        objectPosX = -7;
+    UINT stride = sizeof(VERTEX);
+    UINT offset = 0;
 
     ConstantBuffer cb;
-    cb.mWorld = XMMatrixTranspose(WorldMatrix);
     cb.mView = XMMatrixTranspose(ViewMatrix);
     cb.mProjection = XMMatrixTranspose(ProjectionMatrix);
-    devcon->UpdateSubresource(pConstantBuffer, 0, NULL, &cb, 0, 0);
-    devcon->VSSetConstantBuffers(0, 1, &pConstantBuffer);
 
-    if (DRAW_SIZE == 36)
-            devcon->DrawIndexed(DRAW_SIZE, 0, 0);
-
-    if (DRAW_SIZE == 3)
-        devcon->Draw(DRAW_SIZE, 0);
+    DrawTriangle(cb);
+    DrawCube(cb);
 }
 
 
