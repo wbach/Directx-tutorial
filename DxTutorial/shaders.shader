@@ -1,8 +1,16 @@
 cbuffer ConstantBuffer : register( b0 )
 {
-	matrix World;
-	matrix View;
 	matrix Projection;
+}
+
+cbuffer PerFrameBuffer : register( b1 )
+{
+	matrix View;
+}
+
+cbuffer PerObjectBuffer : register( b2 )
+{
+	matrix World;
 }
 
 struct VS_OUTPUT
@@ -18,6 +26,7 @@ VS_OUTPUT VS( float4 pos : POSITION, float4 color : COLOR )
 {
 	VS_OUTPUT output = (VS_OUTPUT)0;
 	
+	//output.pos = output.pos;
 	output.pos = mul( pos, World );
     output.pos = mul( output.pos, View );
     output.pos = mul( output.pos, Projection );

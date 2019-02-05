@@ -25,7 +25,11 @@ ID3D10Blob *VS, *PS;
 ID3D11Buffer *pVBuffer;
 ID3D11Buffer *pCubeIndicesBuffer;
 ID3D11Buffer *pCubeBuffer;
+
 ID3D11Buffer* pConstantBuffer;
+ID3D11Buffer *pPerFrameBuffer;
+ID3D11Buffer *pPerObjectBuffer;
+
 ID3D11InputLayout *pLayout;
 int DRAW_SIZE = 0;
 
@@ -37,9 +41,17 @@ FLOAT objectPosX = 0;
 
 struct ConstantBuffer
 {
-    XMMATRIX mWorld;
-    XMMATRIX mView;
     XMMATRIX mProjection;
+};
+
+struct PerFrameBuffer
+{
+    XMMATRIX mView;
+};
+
+struct PerObjectBuffer
+{
+    XMMATRIX mWorld;
 };
 
 struct VERTEX
@@ -166,12 +178,18 @@ void InitDirectx(HWND hwnd)
     ZeroMemory(&scd, sizeof(DXGI_SWAP_CHAIN_DESC));
 
     // fill the swap chain description struct
-    scd.BufferCount = 1;                                    // one back buffer
-    scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;     // use 32-bit color
-    scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;      // how swap chain is to be used
-    scd.OutputWindow = hwnd;                                // the window to be used
-    scd.SampleDesc.Count = 4;                               // how many multisamples
-    scd.Windowed = TRUE;                                    // windowed/full-screen mode
+
+    scd.BufferCount = 1;
+    scd.BufferDesc.Width = WIDTH;
+    scd.BufferDesc.Height = HEIGHT;
+    scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    scd.BufferDesc.RefreshRate.Numerator = 60;
+    scd.BufferDesc.RefreshRate.Denominator = 1;
+    scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    scd.OutputWindow = hwnd;
+    scd.SampleDesc.Count = 1;
+    scd.SampleDesc.Quality = 0;
+    scd.Windowed = TRUE;
 
     // create a device, device context and swap chain using the information in the scd struct
     D3D11CreateDeviceAndSwapChain(NULL,
@@ -246,14 +264,26 @@ void InitViewPort()
     devcon->RSSetViewports(1, &viewport);
 }
 
-void CompileShader(const std::string& filename, const std::string& mainFunctionName, const std::string& version, ID3D10Blob*&  blop)
+HRESULT CompileShaderFromFile(const std::string& filename, const std::string& entryPoint, const std::string& shaderModel, ID3DBlob*& ppBlobOut)
 {
-    ID3DBlob* pErrorBlob;
-    auto result = D3DX11CompileFromFile(filename.c_str(), 0, 0, mainFunctionName.c_str(), version.c_str(), 0, 0, 0, &blop, &pErrorBlob, 0);
+    HRESULT hr = S_OK;
 
-    if (FAILED(result))
+    DWORD dwShaderFlags = D3DCOMPILE_ENABLE_STRICTNESS;
+#if defined( DEBUG ) || defined( _DEBUG )
+    // Set the D3DCOMPILE_DEBUG flag to embed debug information in the shaders.
+    // Setting this flag improves the shader debugging experience, but still allows 
+    // the shaders to be optimized and to run exactly the way they will run in 
+    // the release configuration of this program.
+    dwShaderFlags |= D3DCOMPILE_DEBUG;
+#endif
+
+    ID3DBlob* pErrorBlob;
+    hr = D3DX11CompileFromFile(filename.c_str(), NULL, NULL, entryPoint.c_str(), shaderModel.c_str(),
+        dwShaderFlags, 0, NULL, &ppBlobOut, &pErrorBlob, NULL);
+
+    if (FAILED(hr))
     {
-        std::string errorMessage = "Error when compile file : " + filename + ", main function : " + mainFunctionName + ", version  : " + version;
+        std::string errorMessage = "Error when compile file : " + filename + ", main function : " + entryPoint + ", version  : " + shaderModel;
 
         if (pErrorBlob != NULL)
         {
@@ -262,14 +292,22 @@ void CompileShader(const std::string& filename, const std::string& mainFunctionN
         }
 
         MessageBox(NULL, errorMessage.c_str(), "Error", MB_OK);
-        return;
+
+        if (pErrorBlob != NULL)
+            OutputDebugStringA((char*)pErrorBlob->GetBufferPointer());
+        if (pErrorBlob) pErrorBlob->Release();
+        return hr;
     }
+
+    if (pErrorBlob) pErrorBlob->Release();
+
+    return S_OK;
 }
 
 void InitShaders()
 {
-    CompileShader("shaders.shader", "VS", "vs_4_0", VS);
-    CompileShader("shaders.shader", "PS", "ps_4_0", PS);
+    CompileShaderFromFile("shaders.shader", "VS", "vs_4_0", VS);
+    CompileShaderFromFile("shaders.shader", "PS", "ps_4_0", PS);
 
     auto hr = dev->CreateVertexShader(VS->GetBufferPointer(), VS->GetBufferSize(), NULL, &pVS);
 
@@ -433,27 +471,38 @@ void InitVBO()
     devcon->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 }
 
+void CreateBuffer(ID3D11Buffer*& buffer, UINT size)
+{
+    D3D11_BUFFER_DESC bd;
+    ZeroMemory(&bd, sizeof(bd));
+    bd.Usage = D3D11_USAGE_DEFAULT;
+    bd.ByteWidth = size;
+    bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    bd.CPUAccessFlags = 0;
+    bd.BindFlags = 0;
+    bd.MiscFlags = 0;
+
+    auto result = dev->CreateBuffer(&bd, NULL, &buffer);
+    if (FAILED(result))
+    {
+        MessageBox(NULL,
+            "ID3D11Buffer create error.", "Error", MB_OK);
+        return;
+    }
+}
+
 void InitPipeline()
 {
     InitShaders();
     InitVBO();
     CreateInputLayout();
 
-    D3D11_BUFFER_DESC bd;
-    ZeroMemory(&bd, sizeof(bd));
-    bd.Usage = D3D11_USAGE_DEFAULT;
-    bd.ByteWidth = sizeof(ConstantBuffer);
-    bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    bd.CPUAccessFlags = 0;
-
-    auto result = dev->CreateBuffer(&bd, NULL, &pConstantBuffer);
-    if (FAILED(result))
-    {
-        MessageBox(NULL,
-            "pConstantBuffer error.", "Error", MB_OK);
-        return;
-    }
+    CreateBuffer(pConstantBuffer, sizeof(ConstantBuffer));
+    CreateBuffer(pPerFrameBuffer, sizeof(PerFrameBuffer));
+    CreateBuffer(pPerObjectBuffer, sizeof(PerObjectBuffer));
 }
+
+
 
 void UseShader()
 {
@@ -471,35 +520,58 @@ void InitD3D(HWND hwnd)
     InitPipeline();
     UseShader();
 
-    WorldMatrix = XMMatrixIdentity();
+    ProjectionMatrix = XMMatrixPerspectiveFovLH(XM_PIDIV2, WIDTH / (FLOAT)HEIGHT, 0.01f, 100.0f);
 
+    ConstantBuffer cb;
+    cb.mProjection = XMMatrixTranspose(ProjectionMatrix);
+
+    PerFrameBuffer pf;
     XMVECTOR Eye = XMVectorSet(0.0f, 1.0f, -5.0f, 0.0f);
     XMVECTOR At = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     XMVECTOR Up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
     ViewMatrix = XMMatrixLookAtLH(Eye, At, Up);
+    pf.mView = XMMatrixTranspose(ViewMatrix);
 
-    ProjectionMatrix = XMMatrixPerspectiveFovLH(XM_PIDIV2, WIDTH / (FLOAT)HEIGHT, 0.01f, 100.0f);
+    PerObjectBuffer po;
+    WorldMatrix = XMMatrixIdentity();
+    po.mWorld = XMMatrixTranspose(WorldMatrix);
+
+    //ID3D11Buffer* ppCB[3] = { pConstantBuffer, pPerFrameBuffer, pPerObjectBuffer };
+
+
+    devcon->UpdateSubresource(pConstantBuffer, 0, NULL, &cb, 0, 0);
+    devcon->UpdateSubresource(pPerFrameBuffer, 0, NULL, &pf, 0, 0);
+    devcon->UpdateSubresource(pPerObjectBuffer, 0, NULL, &po, 0, 0);
+
     devcon->VSSetConstantBuffers(0, 1, &pConstantBuffer);
+    devcon->VSSetConstantBuffers(1, 1, &pPerFrameBuffer);
+    devcon->VSSetConstantBuffers(2, 1, &pPerObjectBuffer);
+
+
+    //devcon->PSSetConstantBuffers(2, 1, &pPerObjectBuffer);
 }
 
-void DrawTriangle(ConstantBuffer& cb)
+void DrawTriangle()
 {
     UINT stride = sizeof(VERTEX);
     UINT offset = 0;
     devcon->IASetVertexBuffers(0, 1, &pVBuffer, &stride, &offset);
-    cb.mWorld = XMMatrixTranspose(XMMatrixTranslation(objectPosX, 2, 0));
-    devcon->UpdateSubresource(pConstantBuffer, 0, NULL, &cb, 0, 0);
+
+    PerObjectBuffer po;
+    po.mWorld = XMMatrixTranspose(XMMatrixTranslation(objectPosX, 2, 0));
+    devcon->UpdateSubresource(pPerObjectBuffer, 0, NULL, &po, 0, 0);
     devcon->Draw(3, 0);
 }
 
-void DrawCube(ConstantBuffer& cb)
+void DrawCube()
 {
     UINT stride = sizeof(VERTEX);
     UINT offset = 0;
 
     devcon->IASetVertexBuffers(0, 1, &pCubeBuffer, &stride, &offset);
-    cb.mWorld = XMMatrixTranspose(XMMatrixTranslation(objectPosX, 0, 0));
-    devcon->UpdateSubresource(pConstantBuffer, 0, NULL, &cb, 0, 0);
+    PerObjectBuffer po;
+    po.mWorld = XMMatrixTranspose(XMMatrixTranslation(objectPosX, 0, 0));
+   devcon->UpdateSubresource(pPerObjectBuffer, 0, NULL, &po, 0, 0);
     devcon->DrawIndexed(36, 0, 0);
 }
 
@@ -512,15 +584,8 @@ void Draw()
     if (objectPosX > 8)
         objectPosX = -8;
 
-    UINT stride = sizeof(VERTEX);
-    UINT offset = 0;
-
-    ConstantBuffer cb;
-    cb.mView = XMMatrixTranspose(ViewMatrix);
-    cb.mProjection = XMMatrixTranspose(ProjectionMatrix);
-
-    DrawTriangle(cb);
-    DrawCube(cb);
+    DrawTriangle();
+    DrawCube();
 }
 
 
@@ -547,6 +612,8 @@ void CleanD3D()
     depthStencilView->Release();
     backbuffer->Release();
     pConstantBuffer->Release();
+    pPerFrameBuffer->Release();
+    pPerObjectBuffer->Release();
     dev->Release();
     devcon->Release();
 }
