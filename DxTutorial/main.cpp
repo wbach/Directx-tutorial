@@ -3,6 +3,8 @@
 #include <d3d11.h>
 #include <d3dx11.h>
 #include <d3dx10.h>
+#include <D3D11Shader.h>
+#include <d3dcompiler.h>
 #include <string>
 #include <xnamath.h>
 
@@ -284,7 +286,19 @@ void InitShaders()
         PS->Release();
         return;
     }
+    //ID3D11ShaderReflection* pReflector = NULL;
 
+    //D3DReflect(PS->GetBufferPointer(), PS->GetBufferSize(),
+    //    IID_ID3D11ShaderReflection, (void**)&pReflector);
+
+    //D3D11_SHADER_INPUT_BIND_DESC* p = NULL;
+    //hr = pReflector->GetResourceBindingDescByName("ConstantBuffer.World", p);
+
+    //if (FAILED(hr))
+    //{
+    //    PS->Release();
+    //    return;
+    //}
 }
 
 void CreateTriangleVBO()
