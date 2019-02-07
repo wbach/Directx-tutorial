@@ -17,7 +17,8 @@ ID3D11DeviceContext *devcon;           // the pointer to our Direct3D device con
 ID3D11RenderTargetView *backbuffer;    // global declaration
 ID3D11Texture2D*        depthStencil = NULL;
 ID3D11DepthStencilView* depthStencilView = NULL;
-
+D3D_DRIVER_TYPE                     g_driverType = D3D_DRIVER_TYPE_NULL;
+D3D_FEATURE_LEVEL                   g_featureLevel = D3D_FEATURE_LEVEL_11_0;
 
 ID3D11VertexShader *pVS;    // the vertex shader
 ID3D11PixelShader *pPS;     // the pixel shader
@@ -28,7 +29,8 @@ ID3D11Buffer *pCubeBuffer;
 
 ID3D11Buffer* pConstantBuffer;
 ID3D11Buffer *pPerFrameBuffer;
-ID3D11Buffer *pPerObjectBuffer;
+ID3D11Buffer *triangleBuffer;
+ID3D11Buffer *cubeBuffer;
 
 ID3D11InputLayout *pLayout;
 int DRAW_SIZE = 0;
@@ -192,7 +194,12 @@ void InitDirectx(HWND hwnd)
     scd.Windowed = TRUE;
 
     // create a device, device context and swap chain using the information in the scd struct
-    D3D11CreateDeviceAndSwapChain(NULL,
+
+    //hr = D3D11CreateDeviceAndSwapChain(NULL, g_driverType, NULL, createDeviceFlags, featureLevels, numFeatureLevels,
+    //    D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &g_featureLevel, &g_pImmediateContext);
+
+    D3D11CreateDeviceAndSwapChain(
+        NULL,
         D3D_DRIVER_TYPE_HARDWARE,
         NULL,
         NULL,
@@ -202,7 +209,7 @@ void InitDirectx(HWND hwnd)
         &scd,
         &swapchain,
         &dev,
-        NULL,
+        &g_featureLevel,
         &devcon);
 }
 
@@ -256,6 +263,8 @@ void InitViewPort()
     D3D11_VIEWPORT viewport;
     ZeroMemory(&viewport, sizeof(D3D11_VIEWPORT));
 
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
     viewport.TopLeftX = 0;
     viewport.TopLeftY = 0;
     viewport.Width = WIDTH;
@@ -344,10 +353,10 @@ void CreateTriangleVBO()
     D3D11_BUFFER_DESC bd;
     ZeroMemory(&bd, sizeof(bd));
 
-    bd.Usage = D3D11_USAGE_DYNAMIC;                // write access access by CPU and GPU
+    bd.Usage = D3D11_USAGE_DEFAULT;                // write access access by CPU and GPU
     bd.ByteWidth = sizeof(VERTEX) * 3;             // size is the VERTEX struct * 3
     bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;       // use as a vertex buffer
-    bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;    // allow CPU to write in buffer
+    bd.CPUAccessFlags = 0;    // allow CPU to write in buffer
     //bd.StructureByteStride = 0;
 
     D3D11_SUBRESOURCE_DATA InitData;
@@ -494,12 +503,13 @@ void CreateBuffer(ID3D11Buffer*& buffer, UINT size)
 void InitPipeline()
 {
     InitShaders();
-    InitVBO();
     CreateInputLayout();
+    InitVBO();
 
     CreateBuffer(pConstantBuffer, sizeof(ConstantBuffer));
     CreateBuffer(pPerFrameBuffer, sizeof(PerFrameBuffer));
-    CreateBuffer(pPerObjectBuffer, sizeof(PerObjectBuffer));
+    CreateBuffer(triangleBuffer, sizeof(PerObjectBuffer));
+    CreateBuffer(cubeBuffer, sizeof(PerObjectBuffer));
 }
 
 
@@ -514,8 +524,8 @@ void UseShader()
 void InitD3D(HWND hwnd)
 {
     InitDirectx(hwnd);
-    InitRenderTarget();
     InitDepthSetncilView();
+    InitRenderTarget();
     InitViewPort();
     InitPipeline();
     UseShader();
@@ -541,11 +551,12 @@ void InitD3D(HWND hwnd)
 
     devcon->UpdateSubresource(pConstantBuffer, 0, NULL, &cb, 0, 0);
     devcon->UpdateSubresource(pPerFrameBuffer, 0, NULL, &pf, 0, 0);
-    devcon->UpdateSubresource(pPerObjectBuffer, 0, NULL, &po, 0, 0);
+    devcon->UpdateSubresource(triangleBuffer, 0, NULL, &po, 0, 0);
+    devcon->UpdateSubresource(cubeBuffer, 0, NULL, &po, 0, 0);
 
     devcon->VSSetConstantBuffers(0, 1, &pConstantBuffer);
     devcon->VSSetConstantBuffers(1, 1, &pPerFrameBuffer);
-    devcon->VSSetConstantBuffers(2, 1, &pPerObjectBuffer);
+    devcon->VSSetConstantBuffers(2, 1, &triangleBuffer);
 
 
     //devcon->PSSetConstantBuffers(2, 1, &pPerObjectBuffer);
@@ -559,7 +570,8 @@ void DrawTriangle()
 
     PerObjectBuffer po;
     po.mWorld = XMMatrixTranspose(XMMatrixTranslation(objectPosX, 2, 0));
-    devcon->UpdateSubresource(pPerObjectBuffer, 0, NULL, &po, 0, 0);
+    devcon->UpdateSubresource(triangleBuffer, 0, NULL, &po, 0, 0);
+    devcon->VSSetConstantBuffers(2, 1, &triangleBuffer);
     devcon->Draw(3, 0);
 }
 
@@ -571,7 +583,8 @@ void DrawCube()
     devcon->IASetVertexBuffers(0, 1, &pCubeBuffer, &stride, &offset);
     PerObjectBuffer po;
     po.mWorld = XMMatrixTranspose(XMMatrixTranslation(objectPosX, 0, 0));
-   devcon->UpdateSubresource(pPerObjectBuffer, 0, NULL, &po, 0, 0);
+    devcon->UpdateSubresource(cubeBuffer, 0, NULL, &po, 0, 0);
+    devcon->VSSetConstantBuffers(2, 1, &cubeBuffer);
     devcon->DrawIndexed(36, 0, 0);
 }
 
@@ -595,7 +608,7 @@ void RenderFrame(void)
     FLOAT color[] = { 0.0f, 0.2f, 0.4f, 1.0f };
     devcon->ClearRenderTargetView(backbuffer, color);
     devcon->ClearDepthStencilView(depthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
-
+    UseShader();
     // do 3D rendering on the back buffer here
     Draw();
 
@@ -613,7 +626,8 @@ void CleanD3D()
     backbuffer->Release();
     pConstantBuffer->Release();
     pPerFrameBuffer->Release();
-    pPerObjectBuffer->Release();
+    cubeBuffer->Release();
+    triangleBuffer->Release();
     dev->Release();
     devcon->Release();
 }
