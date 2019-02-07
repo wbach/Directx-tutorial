@@ -41,8 +41,15 @@ XMMATRIX  ProjectionMatrix;
 
 FLOAT objectPosX = 0;
 
+struct vec3
+{
+    float x, y, z;
+};
+/*__declspec(align(16))*/
 struct ConstantBuffer
 {
+    bool red{false};
+    vec3 color{0.5, 0, 0};
     XMMATRIX mProjection;
 };
 
